@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>สุ่มรูปภาพวันละครั้ง (รีเซ็ตเที่ยงคืน)</title>
+<style>
+  body { font-family: sans-serif; text-align: center; padding: 24px; background: #f5f5f5; }
+  button { font-size: 18px; padding: 12px 28px; border: 0; border-radius: 999px; background: #6c4ef2; color: #fff; margin: 4px; }
+  button:disabled { background: #aaa; }
+  img { display: block; max-width: 100%; margin: 24px auto; border-radius: 16px; }
+  #msg { color: #555; margin-top: 16px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h1>สุ่มรูปภาพ</h1>
+
+  <div id="loginBox">
+    <button id="loginBtn">เข้าสู่ระบบด้วย Google</button>
+  </div>
+
+  <div id="mainBox" class="hidden">
+    <p id="who"></p>
+    <button id="rollBtn">สุ่ม</button>
+    <button id="logoutBtn" style="background:#888">ออกจากระบบ</button>
+    <p id="msg"></p>
+    <img id="pic" alt="">
+  </div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // 1) วางค่าตั้งค่า Firebase ของคุณตรงนี้
+  const firebaseConfig = {
+    apiKey: "ใส่ของคุณ",
+    authDomain: "ใส่ของคุณ",
+    projectId: "ใส่ของคุณ",
+    appId: "ใส่ของคุณ"
+  };
+
+  // 2) ใส่รูปของคุณตรงนี้
+  const images = [
+    "https://picsum.photos/id/10/600/400",
+    "https://picsum.photos/id/20/600/400",
+    "https://picsum.photos/id/30/600/400",
+    "https://picsum.photos/id/40/600/400",
+    "https://picsum.photos/id/50/600/400"
+  ];
+
+  const TZ_OFFSET = 7 * 3600000; // เวลาไทย UTC+7 (เปลี่ยนได้ถ้าอยู่โซนอื่น)
+  const DAY = 86400000;
+  const dayOf = ms => Math.floor((ms + TZ_OFFSET) / DAY);
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  const $ = id => document.getElementById(id);
+  let user = null, lastMs = 0, timer = null;
+
+  $("loginBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch(e => alert(e.message));
+  $("logoutBtn").onclick = () => signOut(auth);
+
+  onAuthStateChanged(auth, async u => {
+    user = u;
+    clearInterval(timer);
+    $("loginBox").classList.toggle("hidden", !!u);
+    $("mainBox").classList.toggle("hidden", !u);
+    if (!u) return;
+    $("who").textContent = "ล็อกอินเป็น " + u.email;
+    const snap = await getDoc(doc(db, "users", u.uid));
+    if (snap.exists()) {
+      const d = snap.data();
+      lastMs = d.lastTime.toMillis();
+      $("pic").src = images[d.imageIndex] || "";
+    } else {
+      lastMs = 0;
+      $("pic").removeAttribute("src");
+    }
+    update();
+    timer = setInterval(update, 1000);
+  });
+
+  $("rollBtn").onclick = async () => {
+    const n = Math.floor(Math.random() * images.length);
+    $("rollBtn").disabled = true;
+    try {
+      // กฎใน Firestore จะเช็คเองว่าข้ามเที่ยงคืนแล้วหรือยัง
+      await setDoc(doc(db, "users", user.uid), { lastTime: serverTimestamp(), imageIndex: n });
+      const snap = await getDoc(doc(db, "users", user.uid));
+      lastMs = snap.data().lastTime.toMillis();
+      $("pic").src = images[n];
+    } catch (e) {
+      alert("ยังสุ่มไม่ได้ หรือเกิดข้อผิดพลาด: " + e.message);
+    }
+    update();
+  };
+
+  function update() {
+    const left = lastMs ? (dayOf(lastMs) + 1) * DAY - TZ_OFFSET - Date.now() : 0;
+    if (left > 0) {
+      $("rollBtn").disabled = true;
+      const h = Math.floor(left / 3600000);
+      const m = Math.floor((left % 3600000) / 60000);
+      const s = Math.floor((left % 60000) / 1000);
+      $("msg").textContent = "รีเซ็ตเที่ยงคืนอีก " + h + " ชม. " + m + " นาที " + s + " วินาที";
+    } else {
+      $("rollBtn").disabled = false;
+      $("msg").textContent = "";
+    }
+  }
+</script>
+</body>
+</html>
